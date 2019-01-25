@@ -34,6 +34,9 @@
 from __future__ import print_function
 import rospy
 import sys
+import subprocess
+from ctypes import *
+import rosbridge_protocol
 
 from socket import error
 
@@ -51,6 +54,32 @@ from rosbridge_library.capabilities.unadvertise_service import UnadvertiseServic
 from rosbridge_library.capabilities.call_service import CallService
 
 from std_msgs.msg import Int32
+CMPFUNC = CFUNCTYPE(c_int, c_char_p)
+global pOnMessageFunc
+global parameters
+global protocol
+global librosdroid_client_so
+global debug
+
+parameters = {
+        "fragment_timeout": 600,
+        "delay_between_messages": 0,
+        "max_message_size": None,
+        "unregister_timeout": 10,
+        "bson_only_mode": False
+    }
+librosdroid_client_so = cdll.LoadLibrary("librosdroid_client.so");
+protocol = rosbridge_protocol.RosbridgeProtocol(0, parameters)
+protocol.outgoing = librosdroid_client_so.sendMessage
+debug = 0x0
+
+def on_message_call_back(json):
+    if (debug & 0x1) > 0:
+        print ("json = %s" %json)
+    protocol.incoming(json)
+    return 0
+
+pOnMessageFunc = CMPFUNC(on_message_call_back)
 
 def shutdown_hook():
     IOLoop.instance().stop()
@@ -234,5 +263,13 @@ if __name__ == "__main__":
             rospy.logwarn("Unable to start server: " + str(e) +
                           " Retrying in " + str(retry_startup_delay) + "s.")
             rospy.sleep(retry_startup_delay)
+
+    rospy.loginfo("Rosbridge WebSocket server started librosdroid_service.so")
+    librosdroid_service_so = cdll.LoadLibrary("librosdroid_service.so");
+    ret = librosdroid_service_so.server(pOnMessageFunc)
+    if ret:
+         rospy.loginfo("Ros start UbuntuService successfull. ret = %d" %ret)
+    else:
+         rospy.logerr("Ros start UbuntuService fail. ret = %d" %ret)
 
     IOLoop.instance().start()
